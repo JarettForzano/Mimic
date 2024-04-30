@@ -6,7 +6,3 @@ def init(env):
     client = OpenAI(api_key)
 
     return client
-
-
-
-

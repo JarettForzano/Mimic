@@ -1,5 +1,5 @@
 from data.information import ENV
-from deepgramapi.record import record_audio
+from voice.record import record_audio
 
 if __name__ == "__main__":
 
