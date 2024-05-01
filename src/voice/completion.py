@@ -2,16 +2,17 @@ from groq import Groq
 
 # Using groq, provides a yes or no response as to if the sentence is complete or not
 def is_complete(api_key, sentence):
-
+    if sentence is None or sentence == "":
+        return "no"
     # Takes the api key
-    client = Groq(api_key)
-
+    client = Groq(api_key=api_key)
+    #print("Sentence: " + sentence)
     chat_completion = client.chat.completions.create(
 
         messages=[
             {
                 "role": "system",
-                "content": "You are only allowed to respond with yes or no when answering if the following sentence is a complete sentence or not"
+                "content": "The content should simply be Yes or No depending on whether the following sentence is considered complete or not. Questions are considered complete sentences."
             },
 
             {
@@ -31,6 +32,6 @@ def is_complete(api_key, sentence):
     )
 
     # Debugging purposes
-    # print(chat_completion.choices[0].message.content)
+    return chat_completion.choices[0].message.content.lower()
 
-    return chat_completion.choices[0].message.content
+

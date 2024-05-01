@@ -1,6 +1,6 @@
+import asyncio
 from data.information import ENV
-from voice.record import record_audio
-
+from voice.record import voice_to_text
 if __name__ == "__main__":
 
     # Inits the env varibales to be used in order to access api keys
@@ -8,6 +8,7 @@ if __name__ == "__main__":
     
     # Api information will be accessed here
     deepgram_api_key = ENV.retrieve("DEEPGRAM_API_KEY")
+    api_Key = ENV.retrieve("GROG_API")
 
     # Starts recording the users voice and returns the queries (will probably thread it at some point when the other api's are created)
-    record_audio(deepgram_api_key)
+    asyncio.run(voice_to_text(deepgram_api_key, api_Key))

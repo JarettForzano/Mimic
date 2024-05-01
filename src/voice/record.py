@@ -1,97 +1,97 @@
-from dotenv import load_dotenv
+from voice.completion import is_complete
+import asyncio
+import time
 
 from deepgram import (
     DeepgramClient,
     LiveTranscriptionEvents,
     LiveOptions,
     Microphone,
+    DeepgramClientOptions,
 )
 
-load_dotenv()
+class TranscriptCollector:
+    def __init__(self):
+        self.start_time = None
+        self.end_time = None
+        self.reset()
 
-is_finals = []
+    def reset(self):
+        self.transcript_parts = []
+        self.start_time = None
+        self.end_time = None
 
-def record_audio(api_key):
+    def add_part(self, part):
+        if not self.start_time:  
+            self.start_time = time.time()
+        self.transcript_parts.append(part)
+
+    def get_full_transcript(self):
+        self.end_time = time.time()
+        return ' '.join(self.transcript_parts)
+
+transcript_collector = TranscriptCollector()
+
+async def voice_to_text(api_key, groq_api):
     try:
-        deepgram: DeepgramClient = DeepgramClient(api_key)
+        config = DeepgramClientOptions(options={"keepalive": "true"})
+        deepgram: DeepgramClient = DeepgramClient(api_key, config)
+        dg_connection = deepgram.listen.asynclive.v("1")
 
-        dg_connection = deepgram.listen.live.v("1")
-
-        def on_open(self, open, **kwargs):
-            print(f"Deepgram Connection Open")
-
-        def on_message(self, result, **kwargs):
-            global is_finals
+        async def on_message(self, result, **kwargs):
             sentence = result.channel.alternatives[0].transcript
-            if len(sentence) == 0:
-                return
-            if result.is_final:
-                is_finals.append(sentence)
 
-                if result.speech_final:
-                    utterance = ' '.join(is_finals)
-                    print(f"Query: {utterance}")
-                    is_finals = []
+            print (sentence)
+            
+            if not result.speech_final:
+                transcript_collector.add_part(sentence)
+            else:
+                transcript_collector.add_part(sentence)
+                full_sentence = transcript_collector.get_full_transcript()
+                if(is_complete(groq_api, full_sentence) == "yes"):
+                    duration = transcript_collector.end_time - transcript_collector.start_time  # Calculate duration
+
+                    print(f"speaker: [{duration}] {full_sentence}")
+                    transcript_collector.reset()
 
 
-        def on_metadata(self, metadata, **kwargs):
-            print(f"Deepgram Metadata: {metadata}")
 
-        def on_speech_started(self, speech_started, **kwargs):
-            print(f"Start recognizing")
-
-        def on_utterance_end(self, utterance_end, **kwargs):
-            global is_finals
-            if len(is_finals) > 0:
-                #utterance = ' '.join(is_finals)
-                #print(f"Deepgram Utterance End: {utterance}")
-                is_finals = []
-
-        def on_close(self, close, **kwargs):
-            print(f"Connection Closed")
-
-        def on_error(self, error, **kwargs):
+        async def on_error(self, error, **kwargs):
             print(f"Handled Error: {error}")
 
-        def on_unhandled(self, unhandled, **kwargs):
+        async def on_unhandled(self, unhandled, **kwargs):
             print(f"Unhandled Websocket Message: {unhandled}")
 
-        dg_connection.on(LiveTranscriptionEvents.Open, on_open)
         dg_connection.on(LiveTranscriptionEvents.Transcript, on_message)
-        #dg_connection.on(LiveTranscriptionEvents.Metadata, on_metadata)
-        #dg_connection.on(LiveTranscriptionEvents.SpeechStarted, on_speech_started)
-        dg_connection.on(LiveTranscriptionEvents.UtteranceEnd, on_utterance_end)
-        dg_connection.on(LiveTranscriptionEvents.Close, on_close)
         dg_connection.on(LiveTranscriptionEvents.Error, on_error)
         dg_connection.on(LiveTranscriptionEvents.Unhandled, on_unhandled)
 
-        options: LiveOptions = LiveOptions(
+
+        options = LiveOptions(
             model="nova-2",
+            punctuate=True,
             language="en-US",
-            smart_format=True,
             encoding="linear16",
+            smart_format=True,
             channels=1,
             sample_rate=16000,
-            interim_results=True,
-            utterance_end_ms="1000",
-            vad_events=True,
-            endpointing=100
+            endpointing=True
         )
 
         addons = {
             "no_delay": "true"
         }
 
-        print("\n\nPress Enter to stop recording...\n\n")
-        if dg_connection.start(options, addons=addons) is False:
-            print("Failed to connect to Deepgram")
-            return
+        await dg_connection.start(options, addons=addons)
 
         microphone = Microphone(dg_connection.send)
 
         microphone.start()
 
-        input("")
+        while True:
+            if not microphone.is_active():
+                break
+            await asyncio.sleep(1)
 
         microphone.finish()
 
