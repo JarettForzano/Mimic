@@ -10,13 +10,14 @@ from deepgram import (
     DeepgramClientOptions,
 )
 
+# Handles constructing the sentence for groq analysis
 class TranscriptCollector:
     def __init__(self):
         self.start_time = None
         self.end_time = None
         self.reset()
 
-    def reset(self):
+    def reset(self): # Also starts the timer for the voice to text
         self.transcript_parts = []
         self.start_time = None
         self.end_time = None
@@ -28,20 +29,20 @@ class TranscriptCollector:
 
     def get_full_transcript(self):
         self.end_time = time.time()
-        return ' '.join(self.transcript_parts)
+        return ' '.join(self.transcript_parts) # Constructs final sentence 
 
 transcript_collector = TranscriptCollector()
 
 async def voice_to_text(api_key, groq_api):
     try:
-        config = DeepgramClientOptions(options={"keepalive": "true"})
+        config = DeepgramClientOptions(options={"keepalive": "true"}) # keeps the socket alive even if nothing is being transmitted
         deepgram: DeepgramClient = DeepgramClient(api_key, config)
         dg_connection = deepgram.listen.asynclive.v("1")
 
         async def on_message(self, result, **kwargs):
             sentence = result.channel.alternatives[0].transcript
 
-            print (sentence)
+            # print (sentence) # Debugging purposes
             
             if not result.speech_final:
                 transcript_collector.add_part(sentence)
@@ -49,7 +50,7 @@ async def voice_to_text(api_key, groq_api):
                 transcript_collector.add_part(sentence)
                 full_sentence = transcript_collector.get_full_transcript()
                 if(is_complete(groq_api, full_sentence) == "yes"):
-                    duration = transcript_collector.end_time - transcript_collector.start_time  # Calculate duration
+                    duration = transcript_collector.end_time - transcript_collector.start_time
 
                     print(f"speaker: [{duration}] {full_sentence}")
                     transcript_collector.reset()
