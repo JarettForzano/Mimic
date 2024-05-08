@@ -10,13 +10,13 @@ def is_complete(api_key, sentence):
     # Takes the api key
     client = Groq(api_key=api_key)
     
-    #print("Sentence: " + sentence) # use to debug
+    #print("Sentence recieved: " + sentence) # use to debug
     chat_completion = client.chat.completions.create(
 
         messages=[
             {
                 "role": "system",
-                "content": "The content should simply be Yes or No depending on whether the following sentence is considered complete or not. Questions are considered complete sentences."
+                "content": "The content should simply be Yes or No depending on if the string of words is a full sentence or a question fragment. Context is not needed."
             },
 
             {
@@ -28,13 +28,14 @@ def is_complete(api_key, sentence):
 
         model="llama3-70b-8192", # Fast model :)
 
-        temperature=0.0,
+        temperature=1,
         max_tokens=1024,
         top_p=1,
         stop=None,
         stream=False,
     )
-
-    return chat_completion.choices[0].message.content.lower() # returns response 
+    result = chat_completion.choices[0].message.content.lower()
+    #print(result)
+    return result # returns response 
 
 

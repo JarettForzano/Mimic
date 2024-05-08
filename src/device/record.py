@@ -1,4 +1,4 @@
-from voice.completion import is_complete
+from completion import is_complete
 import asyncio
 import time
 
