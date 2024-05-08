@@ -67,7 +67,7 @@ async def voice_to_text(api_key, groq_api):
         dg_connection.on(LiveTranscriptionEvents.Error, on_error)
         dg_connection.on(LiveTranscriptionEvents.Unhandled, on_unhandled)
 
-
+        # options needed for best quality
         options = LiveOptions(
             model="nova-2",
             punctuate=True,

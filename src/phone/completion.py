@@ -2,9 +2,7 @@ from groq import Groq
 
 # Using groq, provides a yes or no response as to if the sentence is complete or not
 def is_complete(api_key, sentence):
-
-    # okay sooooo yeah this makes it work 100% of the time. Its my counter to long pauses but i dont think this would actually occur in real convo's so its more of an edge case cover
-    if sentence is None or sentence == "":
+    if sentence is None or sentence == "": # just return if nothing is present
         return "no"
     
     # Takes the api key
@@ -26,9 +24,9 @@ def is_complete(api_key, sentence):
         ],
 
 
-        model="llama3-70b-8192", # Fast model :)
+        model="llama3-70b-8192", # Fast model
 
-        temperature=1,
+        temperature=1, # do not change, if it goes lower then the result becomes inaccurate
         max_tokens=1024,
         top_p=1,
         stop=None,
@@ -36,6 +34,6 @@ def is_complete(api_key, sentence):
     )
     result = chat_completion.choices[0].message.content.lower()
     #print(result)
-    return result # returns response 
+    return result
 
 

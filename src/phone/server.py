@@ -19,7 +19,7 @@ print(DEEPGRAM, GROQ, GPT)
 class TranscriptCollector:
 	def __init__(self):
 		self.reset()
-	def reset(self): # Also starts the timer for the voice to text
+	def reset(self): 
 		self.transcript_parts = []
 
 	def add_part(self, part):
@@ -57,7 +57,7 @@ def twilio_sender(twilio_ws, data, text):
         if tts_response.status_code == 200:
             raw_mulaw = tts_response.content
 
-            # construct a Twilio media message with the raw mulaw (see https://www.twilio.com/docs/voice/twiml/stream#websocket-messages---to-twilio)
+            # construct a Twilio media message with the raw mulaw
             media_message = {
                 'event': 'media',
                 'streamSid': streamsid,
@@ -73,7 +73,6 @@ async def proxy(client_ws):
 	outbox = asyncio.Queue()
 	print('started proxy')
 
-	
 	async with deepgram_connect() as deepgram_ws:
 		async def deepgram_sender(deepgram_ws):
 			print('started deepgram sender')
@@ -93,26 +92,25 @@ async def proxy(client_ws):
 					try:
 						if not dg_json["is_final"]:
 							transcript_collector.add_part(sentence)
-							print("Added part: " + sentence)
+							#print("Added part: " + sentence)
 						else:
 							start_time = time.time()
 							transcript_collector.add_part(sentence)
 							full_sentence = transcript_collector.get_full_transcript()
-							print("full sentence: " + full_sentence)
+							#print("full sentence: " + full_sentence)
 							if(is_complete(GROQ, full_sentence.strip()) == "yes"):
 								end_time = time.time()
 								duration = end_time - start_time
 								print(f"speaker: [{duration}] {full_sentence}")
 								transcript_collector.reset()
-								async for message in client_ws:
+
+								response = prompt(full_sentence.strip(), GPT) # gets the response from gpt
+								async for message in client_ws: # grabs the sid of the call
 									try:
-										data = json.loads(message)
-										response = prompt(full_sentence.strip(), GPT)
-										await twilio_sender(client_ws, data, response)
+										data = json.loads(message) # json with the information
+										await twilio_sender(client_ws, data, response) # sends the information to twilio method that sends over the text as speech
 									except:
 										break
-
-
 					except:
 						print('did not receive a standard streaming result')
 						continue
@@ -126,7 +124,6 @@ async def proxy(client_ws):
 			print('started client receiver')
 
 			# we will use a buffer of 20 messages (20 * 160 bytes, 0.4 seconds) to improve throughput performance
-			# NOTE: twilio seems to consistently send media messages of 160 bytes
 			BUFFER_SIZE = 20 * 160
 			buffer = bytearray(b'')
 			empty_byte_received = False

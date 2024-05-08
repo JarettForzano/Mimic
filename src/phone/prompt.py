@@ -1,11 +1,5 @@
 from openai import OpenAI
 
-"""
-For now this will just print out the response
-
-Future implementation will include pushing it to TTV and relaying that to the user
-"""
-
 def prompt(text, api_Key):
     client = OpenAI(api_key=api_Key)
 
@@ -19,5 +13,5 @@ def prompt(text, api_Key):
     )
 
     result = result['choices'][0]['message']['content']
-    print(result)
+    # print(result)
     return result
