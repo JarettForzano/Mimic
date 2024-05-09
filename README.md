@@ -21,9 +21,9 @@ Using Ngrok host on 5000 ->```ngrok http 5000``` should return something similar
 - [ ] Complete Integration
 
 ### Twilio Phone features
-- [ ] TTV Phone (In progress -> Testing needed)
+- [X] TTV Phone (In progress -> Testing needed)
 - [X] STT Phone
-- [ ] Complete Integration
+- [X] Complete Integration
 
 ### Both
 - [X] GPT response
@@ -39,6 +39,4 @@ Using Ngrok host on 5000 ->```ngrok http 5000``` should return something similar
 - [ ] After handling a Call sends user summary of what happened
 
 ## Current issues
-
-### Twilio
-1. Learning how to connect TTS and STT in the same async function
+Trying to lower latency as much as possible for the phone call
