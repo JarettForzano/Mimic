@@ -118,9 +118,8 @@ async def proxy(client_ws):
                             full_sentence = transcript_collector.get_full_transcript()
 
                             if(is_complete(GROQ, full_sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
-                               # print(f"speaker: {full_sentence}")
+                                #print(f"speaker: {full_sentence}")
                                 transcript_collector.reset()
-
                                 response = prompt(full_sentence.strip(), GPT) # passes in that sentence and retrieves response from gpt
                                 await twilio_sender(client_ws, stream_sid, response)
 

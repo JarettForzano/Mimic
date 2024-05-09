@@ -17,9 +17,8 @@ def is_complete(api_key, sentence):
         messages=[
             {
                 "role": "system",
-                "content": "The content should simply be Yes or No depending on if the string of words is a full sentence or a question fragment. Context is not needed."
+                "content": "Yes or no, is this a sentence or a question?. Context is not needed."
             },
-
             {
                 "role": "user",
                 "content": sentence,
@@ -27,9 +26,9 @@ def is_complete(api_key, sentence):
         ],
 
 
-        model="llama3-70b-8192", # Fast model
+        model="llama3-8b-8192", # Fast model
 
-        temperature=1, # do not change, if it goes lower then the result becomes inaccurate
+        temperature=0.5,
         max_tokens=1024,
         top_p=1,
         stop=None,
@@ -38,5 +37,3 @@ def is_complete(api_key, sentence):
     result = chat_completion.choices[0].message.content.lower() # Extract response from json
 
     return result
-
-

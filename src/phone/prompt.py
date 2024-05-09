@@ -3,7 +3,7 @@ from openai import OpenAI
 # gpt prompt response to what the user asks, made to be kept short to lower token intake
 def prompt(text, api_Key):
     client = OpenAI(api_key=api_Key)
-
+    print("INPUT: " + text)
     result = client.chat.completions.create(
     model = "gpt-3.5-turbo",
     messages = [
@@ -13,6 +13,7 @@ def prompt(text, api_Key):
     stream = False # CANNOT STREAM
     )
 
-    result = result['choices'][0]['message']['content'] # Extract response from the json
+    answer = result.choices[0].message.content # Extract response from the json
+    #print("GPT: " + answer)
+    return answer
 
-    return result
