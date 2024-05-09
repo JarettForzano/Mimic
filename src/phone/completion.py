@@ -1,6 +1,10 @@
 from groq import Groq
 
-# Using groq, provides a yes or no response as to if the sentence is complete or not
+"""
+Groq is used to make the audio to text portion more efficent
+
+By testing if the sentence is complete or not we can avoid false pushes to gpt and make the answers more specific
+"""
 def is_complete(api_key, sentence):
     if sentence is None or sentence == "": # just return if nothing is present
         return "no"
@@ -8,7 +12,6 @@ def is_complete(api_key, sentence):
     # Takes the api key
     client = Groq(api_key=api_key)
     
-    #print("Sentence recieved: " + sentence) # use to debug
     chat_completion = client.chat.completions.create(
 
         messages=[
@@ -32,8 +35,8 @@ def is_complete(api_key, sentence):
         stop=None,
         stream=False,
     )
-    result = chat_completion.choices[0].message.content.lower()
-    #print(result)
+    result = chat_completion.choices[0].message.content.lower() # Extract response from json
+
     return result
 
 

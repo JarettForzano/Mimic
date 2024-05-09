@@ -1,21 +1,29 @@
 import asyncio
-import sys
 import requests
 import websockets
 import json
 import base64
-import time
 from phone.completion import is_complete
 from phone.prompt import prompt
 import os
 from dotenv import find_dotenv, load_dotenv
 
+"""
+Loads all of the environment variables
+
+Gets messy if you try to store them outside so must be either in directory or in sub directory
+"""
 load_dotenv(find_dotenv('totallysecret.env'))
 DEEPGRAM = os.getenv('DEEPGRAM_API_KEY')
 GROQ = os.getenv('GROQ_API')
 GPT = os.getenv('GPT_API_KEY')
 
-#print(DEEPGRAM, GROQ, GPT)
+
+"""
+Collects each part of the user says and creates a transcript
+
+Can also be used to time from first word caught to last
+"""
 class TranscriptCollector:
     def __init__(self):
         self.reset()
@@ -30,13 +38,19 @@ class TranscriptCollector:
 
 transcript_collector = TranscriptCollector()
 
+# Connects to the deepgram websocket to send the text through and recieve the audio
 def deepgram_connect():
-       # Replace with your Deepgram API key.
     extra_headers = {'Authorization': 'Token ' + DEEPGRAM}
     deepgram_ws = websockets.connect("wss://api.deepgram.com/v1/listen?encoding=mulaw&sample_rate=8000&endpointing=true", extra_headers = extra_headers)
     
     return deepgram_ws
 
+"""
+This takes the twilio websocket, the streamid which is stored inside of the websocket and the text we wish to transmit over the websocket
+
+Audio needs to be encoded with mulaw in order to work and the phone sample rate is always 8000
+This can be kept inside of the proxy but in order to decrease complexity it is moved out
+"""
 async def twilio_sender(twilio_ws, streamsid, text):
         print('twilio_sender started')
 
@@ -47,13 +61,13 @@ async def twilio_sender(twilio_ws, streamsid, text):
             'Content-Type': 'application/json'
         }
         payload = {
-            'text': 'Hello, how are you today?'
+            'text': text
         }
         tts_response = requests.post(url, headers=headers, json=payload)
 
         if tts_response.status_code == 200:
             raw_mulaw = tts_response.content
-            print("Stream ssd " + streamsid)
+
             # construct a Twilio media message with the raw mulaw
             media_message = {
                 'event': 'media',
@@ -65,13 +79,21 @@ async def twilio_sender(twilio_ws, streamsid, text):
             
             # send the TTS audio to the attached phonecall
             await twilio_ws.send(json.dumps(media_message))
-            print("finished twilio tts output")
 
+
+"""
+This is the proxy that the twilio websocket connects to
+
+The deepgram websocket gets connected and starts listening for audio and sends to deepgram services for a transcription
+Deepgram reciever takes in the deepgram websocket and the twilio websocket, deepgram socket retrieves the json response with the transcript attatched
+Twilio websocket is used transmit the response from gpt once recieved
+"""
 async def proxy(client_ws):
     outbox = asyncio.Queue()
     print('started proxy')
     stream_sid = None
 
+    # Connects to the deepgram websocket
     async with deepgram_connect() as deepgram_ws:
         async def deepgram_sender(deepgram_ws):
             print('started deepgram sender')
@@ -79,33 +101,28 @@ async def proxy(client_ws):
                 chunk = await outbox.get()
                 await deepgram_ws.send(chunk)
 
+        # passes in deepgram websocket and twilio websocket to transmit and recieve data async
         async def deepgram_receiver(deepgram_ws, client_ws):
             print('started deepgram receiver')
             nonlocal stream_sid
             async for message in deepgram_ws:
                 try:
                     dg_json = json.loads(message)
-
-                    # print the results from deepgram!
-                    sentence = dg_json["channel"]["alternatives"][0]["transcript"]
+                    sentence = dg_json["channel"]["alternatives"][0]["transcript"] # Whatever deepgram picked up from the call
 
                     try:
-                        if not dg_json["is_final"]:
+                        if not dg_json["is_final"]: # if not final adds the part to the sentence
                             transcript_collector.add_part(sentence)
-                            #print("Added part: " + sentence)
                         else:
-                            transcript_collector.add_part(sentence)
+                            transcript_collector.add_part(sentence) # adds the final piece to the sentence
                             full_sentence = transcript_collector.get_full_transcript()
-                            #print("full sentence: " + full_sentence)
-                            #if(is_complete(GROQ, full_sentence.strip()) == "yes"):
-                            if(True):
-                                print(f"speaker: {full_sentence}")
+
+                            if(is_complete(GROQ, full_sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
+                               # print(f"speaker: {full_sentence}")
                                 transcript_collector.reset()
 
-                                #response = prompt(full_sentence.strip(), GPT) # gets the response from gpt
-                                response = "true"
-                                #print("stream_sid " + stream_sid)
-                                await twilio_sender(client_ws, stream_sid, response) # sends the information to twilio method that sends over the text as speech
+                                response = prompt(full_sentence.strip(), GPT) # passes in that sentence and retrieves response from gpt
+                                await twilio_sender(client_ws, stream_sid, response)
 
                     except:
                         print('did not receive a standard streaming result')
@@ -114,7 +131,7 @@ async def proxy(client_ws):
                     print('was not able to parse deepgram response as json')
                     continue
             print('finished deepgram receiver')
-            transcript_collector.reset()
+            transcript_collector.reset() # if call suddenly cuts out we need to reset the transcript stored
 
         async def client_receiver(client_ws):
             print('started client receiver')
@@ -123,13 +140,14 @@ async def proxy(client_ws):
             BUFFER_SIZE = 20 * 160
             buffer = bytearray(b'')
             empty_byte_received = False
+
             async for message in client_ws:
                 try:
                     data = json.loads(message)
-                    #print(data)
+
                     if data["event"] == "start":
                         print("Media WS: Received event connected or start")
-                        stream_sid = data['start']['streamSid']
+                        stream_sid = data['start']['streamSid'] # needed to send audio through the websocket
                         continue
                     if data["event"] == "media":
                         media = data["media"]
