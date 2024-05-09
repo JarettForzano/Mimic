@@ -21,7 +21,7 @@ Using Ngrok host on 5000 ->```ngrok http 5000``` should return something similar
 - [ ] Complete Integration
 
 ### Twilio Phone features
-- [X] TTV Phone (In progress -> Testing needed)
+- [X] TTV Phone
 - [X] STT Phone
 - [X] Complete Integration
 
