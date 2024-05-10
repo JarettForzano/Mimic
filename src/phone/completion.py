@@ -1,3 +1,4 @@
+import time
 from groq import Groq
 
 """
@@ -8,7 +9,7 @@ By testing if the sentence is complete or not we can avoid false pushes to gpt a
 def is_complete(api_key, sentence):
     if sentence is None or sentence == "": # just return if nothing is present
         return "no"
-    
+    start = time.time()
     # Takes the api key
     client = Groq(api_key=api_key)
     
@@ -35,5 +36,7 @@ def is_complete(api_key, sentence):
         stream=False,
     )
     result = chat_completion.choices[0].message.content.lower() # Extract response from json
-
+    #print(result, sentence)
+    end = time.time()
+    #print("Time to return groq response: " + str(end-start))
     return result

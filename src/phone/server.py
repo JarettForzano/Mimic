@@ -1,4 +1,5 @@
 import asyncio
+import time
 import requests
 import websockets
 import json
@@ -51,34 +52,39 @@ This takes the twilio websocket, the streamid which is stored inside of the webs
 Audio needs to be encoded with mulaw in order to work and the phone sample rate is always 8000
 This can be kept inside of the proxy but in order to decrease complexity it is moved out
 """
-async def twilio_sender(twilio_ws, streamsid, text):
+async def twilio_sender(twilio_ws, streamsid, chunks):
         print('twilio_sender started')
-
         # make a Deepgram Aura TTS request specifying that we want raw mulaw audio as the output
         url = 'https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=mulaw&sample_rate=8000&container=none'
         headers = {
             'Authorization': 'Token ' + DEEPGRAM,
             'Content-Type': 'application/json'
         }
-        payload = {
-            'text': text
-        }
-        tts_response = requests.post(url, headers=headers, json=payload)
 
-        if tts_response.status_code == 200:
-            raw_mulaw = tts_response.content
-
-            # construct a Twilio media message with the raw mulaw
-            media_message = {
-                'event': 'media',
-                'streamSid': streamsid,
-                'media': {
-                    'payload': base64.b64encode(raw_mulaw).decode('ascii')
-                }
+        for chunk in chunks:
+            print(chunk)
+            payload = {
+                'text': chunk
             }
-            
-            # send the TTS audio to the attached phonecall
-            await twilio_ws.send(json.dumps(media_message))
+            start = time.time()
+            tts_response = requests.post(url, headers=headers, json=payload, stream=True)  # Stream the response
+            end = time.time()
+            print("Time to first byte: " + str(end - start))
+            # print(tts_response)
+            if tts_response.status_code == 200:
+                # Stream the content directly into raw_mulaw
+                for raw_mulaw in tts_response.iter_content(chunk_size=1024):
+                    media_message = {
+                        'event': 'media',
+                        'streamSid': streamsid,
+                        'media': {
+                            'payload': base64.b64encode(raw_mulaw).decode('ascii')
+                        }
+                    }
+
+                    # send the TTS audio to the attached phonecall
+                    await twilio_ws.send(json.dumps(media_message))
+
 
 
 """
@@ -114,14 +120,18 @@ async def proxy(client_ws):
                         if not dg_json["is_final"]: # if not final adds the part to the sentence
                             transcript_collector.add_part(sentence)
                         else:
+                            start_response = time.time()
                             transcript_collector.add_part(sentence) # adds the final piece to the sentence
                             full_sentence = transcript_collector.get_full_transcript()
-
+                            #print(full_sentence)
                             if(is_complete(GROQ, full_sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
                                 #print(f"speaker: {full_sentence}")
                                 transcript_collector.reset()
                                 response = prompt(full_sentence.strip(), GPT) # passes in that sentence and retrieves response from gpt
                                 await twilio_sender(client_ws, stream_sid, response)
+                                end_response = time.time()
+
+                            #print("Time for response between start and end transmit: " + str(end_response-start_response))
 
                     except:
                         print('did not receive a standard streaming result')
