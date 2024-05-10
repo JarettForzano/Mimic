@@ -40,5 +40,5 @@ def contains_clause_boundary(text):
     pattern = re.compile(CLAUSE_BOUNDARIES)
     return bool(pattern.search(text))
 
-CLAUSE_BOUNDARIES = r'\.|\?|!|;|, (and|but|or|nor|for|yet|so)'
-MAX_WORD_COUNT = 5
+CLAUSE_BOUNDARIES = r'\.|\?|!|;|,(\s*(and|but|or|nor|for|yet|so))?'
+

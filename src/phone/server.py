@@ -1,5 +1,7 @@
 import asyncio
+import re
 import time
+from openai import OpenAI
 import requests
 import websockets
 import json
@@ -38,6 +40,7 @@ class TranscriptCollector:
         return ' '.join(self.transcript_parts) # Constructs final sentence 
 
 transcript_collector = TranscriptCollector()
+response_chunks = []
 
 # Connects to the deepgram websocket to send the text through and recieve the audio
 def deepgram_connect():
@@ -47,12 +50,56 @@ def deepgram_connect():
     return deepgram_ws
 
 """
+Asynchronously creates chunks and pushes them to the stack at the same time that twilio sender is being run
+
+As the answer is being generated the chunks are created and sent to deepgram to convert into audio which also is chunked
+"""
+async def prompt(text, api_Key):
+    global response_chunks
+    client = OpenAI(api_key=api_Key)
+    #print("INPUT: " + text)
+    result = client.chat.completions.create(
+    model = "gpt-3.5-turbo",
+    messages = [
+        {"role": "system", "content": "You are an assistant whose task is to communicate and provide one sentence responses to questions that the user might have."},
+        {"role": "user", "content": text}
+    ],
+    stream = True
+    )
+
+    clause = ""
+    count = 0
+    start = time.time()
+    for chunk in result:
+        #print(chunk.choices[0].delta.content)
+        if chunk.choices[0].delta.content is not None:
+            chunk_text = chunk.choices[0].delta.content
+            clause += chunk_text
+            count+=1
+            if contains_clause_boundary(clause) and len(clause.split()) > 3:
+                response_chunks.append(clause)
+                #print(clause)
+                print(clause + ": [" + str(time.time()-start) + "] GPT")
+                clause = ""
+                count = 0
+                start = time.time()
+
+
+def contains_clause_boundary(text):
+    pattern = re.compile(CLAUSE_BOUNDARIES)
+    return bool(pattern.search(text))
+
+CLAUSE_BOUNDARIES = r'\.|\?|!|;|,(\s*(and|but|or|nor|for|yet|so))?'
+
+
+"""
 This takes the twilio websocket, the streamid which is stored inside of the websocket and the text we wish to transmit over the websocket
 
 Audio needs to be encoded with mulaw in order to work and the phone sample rate is always 8000
 This can be kept inside of the proxy but in order to decrease complexity it is moved out
 """
-async def twilio_sender(twilio_ws, streamsid, chunks):
+async def twilio_sender(twilio_ws, streamsid):
+        global response_chunks
         print('twilio_sender started')
         # make a Deepgram Aura TTS request specifying that we want raw mulaw audio as the output
         url = 'https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=mulaw&sample_rate=8000&container=none'
@@ -61,15 +108,17 @@ async def twilio_sender(twilio_ws, streamsid, chunks):
             'Content-Type': 'application/json'
         }
 
-        for chunk in chunks:
-            print(chunk)
+        while not response_chunks: # if nothing is inside the stack we must wait
+            await asyncio.sleep(0.05)
+
+        for chunk in response_chunks:
+            #print(chunk)
             payload = {
                 'text': chunk
             }
             start = time.time()
             tts_response = requests.post(url, headers=headers, json=payload, stream=True)  # Stream the response
-            end = time.time()
-            print("Time to first byte: " + str(end - start))
+            print(chunk + ": [" + str(time.time() - start) + "] TWILIO")
             # print(tts_response)
             if tts_response.status_code == 200:
                 # Stream the content directly into raw_mulaw
@@ -84,6 +133,7 @@ async def twilio_sender(twilio_ws, streamsid, chunks):
 
                     # send the TTS audio to the attached phonecall
                     await twilio_ws.send(json.dumps(media_message))
+        response_chunks = []
 
 
 
@@ -94,6 +144,7 @@ The deepgram websocket gets connected and starts listening for audio and sends t
 Deepgram reciever takes in the deepgram websocket and the twilio websocket, deepgram socket retrieves the json response with the transcript attatched
 Twilio websocket is used transmit the response from gpt once recieved
 """
+
 async def proxy(client_ws):
     outbox = asyncio.Queue()
     print('started proxy')
@@ -120,18 +171,11 @@ async def proxy(client_ws):
                         if not dg_json["is_final"]: # if not final adds the part to the sentence
                             transcript_collector.add_part(sentence)
                         else:
-                            start_response = time.time()
                             transcript_collector.add_part(sentence) # adds the final piece to the sentence
                             full_sentence = transcript_collector.get_full_transcript()
-                            #print(full_sentence)
                             if(is_complete(GROQ, full_sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
-                                #print(f"speaker: {full_sentence}")
                                 transcript_collector.reset()
-                                response = prompt(full_sentence.strip(), GPT) # passes in that sentence and retrieves response from gpt
-                                await twilio_sender(client_ws, stream_sid, response)
-                                end_response = time.time()
-
-                            #print("Time for response between start and end transmit: " + str(end_response-start_response))
+                                await asyncio.gather(twilio_sender(client_ws, stream_sid), prompt(full_sentence.strip(), GPT))
 
                     except:
                         print('did not receive a standard streaming result')

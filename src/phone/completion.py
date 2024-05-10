@@ -10,6 +10,7 @@ def is_complete(api_key, sentence):
     if sentence is None or sentence == "": # just return if nothing is present
         return "no"
     start = time.time()
+    print("Pushed: " + sentence)
     # Takes the api key
     client = Groq(api_key=api_key)
     
@@ -33,10 +34,10 @@ def is_complete(api_key, sentence):
         max_tokens=1024,
         top_p=1,
         stop=None,
-        stream=False,
+        stream=True,
     )
-    result = chat_completion.choices[0].message.content.lower() # Extract response from json
-    #print(result, sentence)
-    end = time.time()
-    #print("Time to return groq response: " + str(end-start))
-    return result
+    for chunk in chat_completion:
+        chunk_text = chunk.choices[0].delta.content.lower()
+        if chunk_text == "yes" or chunk_text == "no":
+            print(chunk_text + ": [" + str(time.time()-start) + "] GROQ")
+            return chunk_text
