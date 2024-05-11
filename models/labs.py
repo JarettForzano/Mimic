@@ -3,7 +3,6 @@ import websockets
 import json
 import base64
 import shutil
-import os
 import subprocess
 from openai import AsyncOpenAI
 
@@ -64,7 +63,7 @@ async def stream(audio_stream):
     mpv_process.wait()
 
 
-async def text_to_speech_input_streaming(voice_id, text_iterator):
+async def text_to_speech_input_streaming(text_iterator):
     """Send text to ElevenLabs API and stream the returned audio."""
     uri = f"wss://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream-input?model_id=eleven_turbo_v2&output_format=ulaw_8000"
 

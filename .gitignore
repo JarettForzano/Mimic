@@ -2,7 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+supersecret.env
 # C extensions
 *.so
 secret
