@@ -27,7 +27,7 @@ Using Ngrok host on 5000 ->```ngrok http 5000``` should return something similar
 
 ### Both
 - [X] GPT response
-- [X] Groq implemntation for complete sentences (needed some fine tuning)
+- [X] Groq implemntation for complete sentences (removed from main part since it increased latency)
 - [ ] Database to hold previous chats
 - [ ] Complete Integration of system
 - [ ] Implementation of Google Calendar's API
@@ -40,3 +40,4 @@ Using Ngrok host on 5000 ->```ngrok http 5000``` should return something similar
 
 ## Current issues
 Trying to lower latency as much as possible for the phone call
+Stopped working on device portion since main focus is on the call aspect
