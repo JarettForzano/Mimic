@@ -1,14 +1,12 @@
 import asyncio
-import re
 import time
-from openai import OpenAI
-import requests
+from openai import AsyncOpenAI
 import websockets
 import json
 import base64
 import os
 from dotenv import find_dotenv, load_dotenv
-
+start = None
 """
 Loads all of the environment variables
 
@@ -18,8 +16,8 @@ load_dotenv(find_dotenv('totallysecret.env'))
 DEEPGRAM = os.getenv('DEEPGRAM_API_KEY')
 GROQ = os.getenv('GROQ_API')
 GPT = os.getenv('GPT_API_KEY')
-
-response_queue = asyncio.Queue()
+LABS = os.getenv('ELEVEN_API')
+client = AsyncOpenAI(api_key=GPT)
 
 # Connects to the deepgram websocket to send the text through and recieve the audio
 def deepgram_connect():
@@ -28,47 +26,83 @@ def deepgram_connect():
     
     return deepgram_ws
 
+async def text_chunker(chunks):
+    """Split text into chunks, ensuring to not break sentences."""
+    splitters = (".", ",", "?", "!", ";", ":", "—", "-", "(", ")", "[", "]", "}", " ")
+    buffer = ""
+    async for text in chunks:
+        #print(text)
+        if text:
+            if buffer.endswith(splitters):
+                yield buffer + " "
+                buffer = text
+            elif text.startswith(splitters):
+                yield buffer + text[0] + " "
+                buffer = text[1:]
+            else:
+                buffer += text
+
+    if buffer:
+        yield buffer + " "
+
 """
 Asynchronously creates chunks and pushes them to the stack at the same time that twilio sender is being run
 
 As the answer is being generated the chunks are created and sent to deepgram to convert into audio which also is chunked
 """
-async def prompt(text, api_Key):
-    global response_queue
-    client = OpenAI(api_key=api_Key)
-    #print("INPUT: " + text)
-    result = client.chat.completions.create(
+async def gpt_stream(text, ws, stream_sid):
+    global start
+    result = await client.chat.completions.create(
     model = "gpt-3.5-turbo",
     messages = [
         {"role": "system", "content": "You are an assistant whose task is to communicate and provide one sentence responses to questions that the user might have."},
         {"role": "user", "content": text}
     ],
-    stream = True
+    stream = True,
+    temperature=1
     )
 
-    clause = ""
-    count = 0
-    start = time.time()
-    for chunk in result:
-        #print(chunk.choices[0].delta.content)
-        if chunk.choices[0].delta.content is not None:
+    async def text_iterator():
+        async for chunk in result:
             chunk_text = chunk.choices[0].delta.content
-            clause += chunk_text
-            count+=1
-            if contains_clause_boundary(clause) and len(clause.split()) > 3:
-                await response_queue.put(clause)
-                #print(clause)
-                print(clause + ": [" + str(time.time()-start) + "] GPT")
-                clause = ""
-                count = 0
-                start = time.time()
-    await response_queue.put("close")
+            yield chunk_text
+    start = time.time()
+    await text_to_speech_input_streaming(text_iterator(), ws, stream_sid)
 
-def contains_clause_boundary(text):
-    pattern = re.compile(CLAUSE_BOUNDARIES)
-    return bool(pattern.search(text))
+async def text_to_speech_input_streaming(text_iterator, ws, stream_sid):
+    """Send text to ElevenLabs API and stream the returned audio."""
+    uri = f"wss://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream-input?model_id=eleven_turbo_v2&output_format=ulaw_8000&optimize_streaming_latency=3"
 
-CLAUSE_BOUNDARIES = r'\.|\?|!|;|,(\s*(and|but|or|nor|for|yet|so))?'
+    async with websockets.connect(uri) as websocket:
+        await websocket.send(json.dumps({
+            "text": " ",
+            "voice_settings": {"stability": 0.5, "similarity_boost": 0.8},
+            "xi_api_key": LABS
+        }))
+
+        async def listen():
+            """Listen to the websocket for audio data and stream it."""
+            while True:
+                try:
+                    message = await websocket.recv()
+                    data = json.loads(message)
+                    if data.get("audio"):
+                        yield data["audio"]
+                    elif data.get('isFinal'):
+                        break
+                except websockets.exceptions.ConnectionClosed:
+                    print("Connection closed")
+                    break
+
+        listen_task = asyncio.create_task(twilio_sender(ws, stream_sid, listen()))
+
+        async for text in text_chunker(text_iterator):
+            #print(text)
+            await websocket.send(json.dumps({"text": text, "try_trigger_generation": True}))
+
+        await websocket.send(json.dumps({"text": ""}))
+
+        await listen_task
 
 
 """
@@ -77,42 +111,27 @@ This takes the twilio websocket, the streamid which is stored inside of the webs
 Audio needs to be encoded with mulaw in order to work and the phone sample rate is always 8000
 This can be kept inside of the proxy but in order to decrease complexity it is moved out
 """
-async def twilio_sender(twilio_ws, streamsid):
-        global response_chunks
-        print('twilio_sender started')
-        # make a Deepgram Aura TTS request specifying that we want raw mulaw audio as the output
-        url = 'https://api.deepgram.com/v1/speak?model=aura-asteria-en&encoding=mulaw&sample_rate=8000&container=none'
-        headers = {
-            'Authorization': 'Token ' + DEEPGRAM,
-            'Content-Type': 'application/json'
-        }
-
-        while True:
-            chunk = await response_queue.get()
-            chunk_text = chunk.strip()
-            if(chunk_text == "close"):
-                break;
-            payload = {
-                'text': chunk_text
-            }
-            start = time.time()
-            tts_response = requests.post(url, headers=headers, json=payload, stream=True)  # Stream the response
-            print(chunk_text + ": [" + str(time.time() - start) + "] DEEPGRAM")
-            # print(tts_response)
-            if tts_response.status_code == 200:
-                # Stream the content directly into raw_mulaw
-                for raw_mulaw in tts_response.iter_content(chunk_size=256):
-                    media_message = {
-                        'event': 'media',
-                        'streamSid': streamsid,
-                        'media': {
-                            'payload': base64.b64encode(raw_mulaw).decode('ascii')
-                        }
+async def twilio_sender(twilio_ws, streamsid, audio_stream):
+    print('twilio_sender started')
+    global start
+    async for chunk in audio_stream:
+        #print(chunk)
+        # Stream the content directly into twilio socket
+        if chunk:
+            try:
+                media_message = {
+                    'event': 'media',
+                    'streamSid': streamsid,
+                    'media': {
+                        'payload': chunk
                     }
+                }
 
-                    # send the TTS audio to the attached phonecall
-                    await twilio_ws.send(json.dumps(media_message))
-
+                # send the TTS audio to the attached phonecall
+                await twilio_ws.send(json.dumps(media_message))
+                print("TTFAB: " + str(time.time() - start))
+            except Exception as e:
+                print("Error sending to Twilio: ", e)
 
 
 """
@@ -124,7 +143,6 @@ Twilio websocket is used transmit the response from gpt once recieved
 """
 
 async def proxy(client_ws):
-    global response_queue
     outbox = asyncio.Queue()
     print('started proxy')
     stream_sid = None
@@ -149,10 +167,10 @@ async def proxy(client_ws):
                     try:
                         #if(is_complete(GROQ, sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
                         if(len(sentence) != 0):
-                            await asyncio.gather(twilio_sender(client_ws, stream_sid), prompt(sentence.strip(), GPT))
+                            await gpt_stream(sentence.strip(), client_ws, stream_sid)
 
-                    except:
-                        print('did not receive a standard streaming result')
+                    except Exception as e:
+                        print('did not receive a standard streaming result', e)
                         continue
                 except:
                     print('was not able to parse deepgram response as json')
