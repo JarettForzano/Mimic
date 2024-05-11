@@ -29,18 +29,4 @@ def synthesize_audio(text, output_file):
             if chunk:
                 output_file.write(chunk)
 
-def main():
-    text = ""
-    segments = segment_text_by_sentence(text)
-
-    # Create or truncate the output file
-    with open("output.mp3", "wb") as output_file:
-        for segment_text in segments:
-            synthesize_audio(segment_text, output_file)
-
-    print("Audio file creation completed.")
-
-if __name__ == "__main__":
-    main()
-
 

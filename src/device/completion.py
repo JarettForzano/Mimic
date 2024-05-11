@@ -1,22 +1,26 @@
+import time
 from groq import Groq
 
-# Using groq, provides a yes or no response as to if the sentence is complete or not
+"""
+Groq is used to make the audio to text portion more efficent
+
+By testing if the sentence is complete or not we can avoid false pushes to gpt and make the answers more specific
+"""
 def is_complete(api_key, sentence):
-    if sentence is None or sentence == "":
+    if sentence is None or sentence == "": # just return if nothing is present
         return "no"
-    
+    start = time.time()
+    print("Pushed: " + sentence)
     # Takes the api key
     client = Groq(api_key=api_key)
     
-    #print("Sentence recieved: " + sentence) # use to debug
     chat_completion = client.chat.completions.create(
 
         messages=[
             {
                 "role": "system",
-                "content": "The content should simply be Yes or No depending on if the string of words is a full sentence or a question fragment. Context is not needed."
+                "content": "Yes or no, is this a sentence or a question?. Context is not needed."
             },
-
             {
                 "role": "user",
                 "content": sentence,
@@ -24,16 +28,16 @@ def is_complete(api_key, sentence):
         ],
 
 
-        model="llama3-70b-8192",
+        model="llama3-8b-8192", # Fast model
 
-        temperature=1,
+        temperature=0.5,
         max_tokens=1024,
         top_p=1,
         stop=None,
-        stream=False,
+        stream=True,
     )
-    result = chat_completion.choices[0].message.content.lower()
-    #print(result)
-    return result # returns response 
-
-
+    for chunk in chat_completion:
+        chunk_text = chunk.choices[0].delta.content.lower()
+        if chunk_text == "yes" or chunk_text == "no":
+            print(chunk_text + ": [" + str(time.time()-start) + "] GROQ")
+            return chunk_text

@@ -3,13 +3,17 @@ import time
 from openai import OpenAI
 import re
 
-stack = []
+response_chunks = []
+## Just used to test it out
+"""
+Asynchronously creates chunks and pushes them to the stack at the same time that twilio sender is being run
 
-# gpt prompt response to what the user asks, made to be kept short to lower token intake
+As the answer is being generated the chunks are created and sent to deepgram to convert into audio which also is chunked
+"""
 async def prompt(text, api_Key):
-    start = time.time()
+    global response_chunks
     client = OpenAI(api_key=api_Key)
-    #print("INPUT: " + text)
+
     result = client.chat.completions.create(
     model = "gpt-3.5-turbo",
     messages = [
@@ -21,19 +25,20 @@ async def prompt(text, api_Key):
 
     clause = ""
     count = 0
+    start = time.time()
     for chunk in result:
         #print(chunk.choices[0].delta.content)
         if chunk.choices[0].delta.content is not None:
             chunk_text = chunk.choices[0].delta.content
             clause += chunk_text
             count+=1
-            if contains_clause_boundary(chunk_text) or count == 5:
-                stack.append(clause)
-                print(clause)
+            if contains_clause_boundary(clause) and len(clause.split()) > 3:
+                response_chunks.append(clause)
+                #print(clause)
+                print(clause + ": [" + str(time.time()-start) + "] GPT")
                 clause = ""
                 count = 0
-            #end = time.time()
-            #print("Time for gpt response: " + str(end-start))
+                start = time.time()
 
 
 def contains_clause_boundary(text):
@@ -41,4 +46,3 @@ def contains_clause_boundary(text):
     return bool(pattern.search(text))
 
 CLAUSE_BOUNDARIES = r'\.|\?|!|;|,(\s*(and|but|or|nor|for|yet|so))?'
-

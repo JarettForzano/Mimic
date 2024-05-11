@@ -6,8 +6,6 @@ import requests
 import websockets
 import json
 import base64
-from phone.completion import is_complete
-from phone.prompt import prompt
 import os
 from dotenv import find_dotenv, load_dotenv
 
@@ -21,31 +19,12 @@ DEEPGRAM = os.getenv('DEEPGRAM_API_KEY')
 GROQ = os.getenv('GROQ_API')
 GPT = os.getenv('GPT_API_KEY')
 
-
-"""
-Collects each part of the user says and creates a transcript
-
-Can also be used to time from first word caught to last
-"""
-class TranscriptCollector:
-    def __init__(self):
-        self.reset()
-    def reset(self): 
-        self.transcript_parts = []
-
-    def add_part(self, part):
-        self.transcript_parts.append(part)
-
-    def get_full_transcript(self):
-        return ' '.join(self.transcript_parts) # Constructs final sentence 
-
-transcript_collector = TranscriptCollector()
-response_chunks = []
+response_queue = asyncio.Queue()
 
 # Connects to the deepgram websocket to send the text through and recieve the audio
 def deepgram_connect():
     extra_headers = {'Authorization': 'Token ' + DEEPGRAM}
-    deepgram_ws = websockets.connect("wss://api.deepgram.com/v1/listen?encoding=mulaw&sample_rate=8000&endpointing=true", extra_headers = extra_headers)
+    deepgram_ws = websockets.connect("wss://api.deepgram.com/v1/listen?model=enhanced-phonecall&encoding=mulaw&smart_format=true&sample_rate=8000&endpointing=true", extra_headers = extra_headers)
     
     return deepgram_ws
 
@@ -55,7 +34,7 @@ Asynchronously creates chunks and pushes them to the stack at the same time that
 As the answer is being generated the chunks are created and sent to deepgram to convert into audio which also is chunked
 """
 async def prompt(text, api_Key):
-    global response_chunks
+    global response_queue
     client = OpenAI(api_key=api_Key)
     #print("INPUT: " + text)
     result = client.chat.completions.create(
@@ -77,13 +56,13 @@ async def prompt(text, api_Key):
             clause += chunk_text
             count+=1
             if contains_clause_boundary(clause) and len(clause.split()) > 3:
-                response_chunks.append(clause)
+                await response_queue.put(clause)
                 #print(clause)
                 print(clause + ": [" + str(time.time()-start) + "] GPT")
                 clause = ""
                 count = 0
                 start = time.time()
-
+    await response_queue.put("close")
 
 def contains_clause_boundary(text):
     pattern = re.compile(CLAUSE_BOUNDARIES)
@@ -108,21 +87,21 @@ async def twilio_sender(twilio_ws, streamsid):
             'Content-Type': 'application/json'
         }
 
-        while not response_chunks: # if nothing is inside the stack we must wait
-            await asyncio.sleep(0.05)
-
-        for chunk in response_chunks:
-            #print(chunk)
+        while True:
+            chunk = await response_queue.get()
+            chunk_text = chunk.strip()
+            if(chunk_text == "close"):
+                break;
             payload = {
-                'text': chunk
+                'text': chunk_text
             }
             start = time.time()
             tts_response = requests.post(url, headers=headers, json=payload, stream=True)  # Stream the response
-            print(chunk + ": [" + str(time.time() - start) + "] TWILIO")
+            print(chunk_text + ": [" + str(time.time() - start) + "] DEEPGRAM")
             # print(tts_response)
             if tts_response.status_code == 200:
                 # Stream the content directly into raw_mulaw
-                for raw_mulaw in tts_response.iter_content(chunk_size=1024):
+                for raw_mulaw in tts_response.iter_content(chunk_size=256):
                     media_message = {
                         'event': 'media',
                         'streamSid': streamsid,
@@ -133,7 +112,6 @@ async def twilio_sender(twilio_ws, streamsid):
 
                     # send the TTS audio to the attached phonecall
                     await twilio_ws.send(json.dumps(media_message))
-        response_chunks = []
 
 
 
@@ -146,6 +124,7 @@ Twilio websocket is used transmit the response from gpt once recieved
 """
 
 async def proxy(client_ws):
+    global response_queue
     outbox = asyncio.Queue()
     print('started proxy')
     stream_sid = None
@@ -166,16 +145,11 @@ async def proxy(client_ws):
                 try:
                     dg_json = json.loads(message)
                     sentence = dg_json["channel"]["alternatives"][0]["transcript"] # Whatever deepgram picked up from the call
-
+                    #print(sentence, len(sentence.split()))
                     try:
-                        if not dg_json["is_final"]: # if not final adds the part to the sentence
-                            transcript_collector.add_part(sentence)
-                        else:
-                            transcript_collector.add_part(sentence) # adds the final piece to the sentence
-                            full_sentence = transcript_collector.get_full_transcript()
-                            if(is_complete(GROQ, full_sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
-                                transcript_collector.reset()
-                                await asyncio.gather(twilio_sender(client_ws, stream_sid), prompt(full_sentence.strip(), GPT))
+                        #if(is_complete(GROQ, sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
+                        if(len(sentence) != 0):
+                            await asyncio.gather(twilio_sender(client_ws, stream_sid), prompt(sentence.strip(), GPT))
 
                     except:
                         print('did not receive a standard streaming result')
@@ -184,7 +158,6 @@ async def proxy(client_ws):
                     print('was not able to parse deepgram response as json')
                     continue
             print('finished deepgram receiver')
-            transcript_collector.reset() # if call suddenly cuts out we need to reset the transcript stored
 
         async def client_receiver(client_ws):
             print('started client receiver')
