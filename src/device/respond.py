@@ -3,7 +3,7 @@ import requests
 
 DEEPGRAM_URL = 'https://api.deepgram.com/v1/speak?model=aura-helios-en'
 headers = {
-    "Authorization": "Token KEY_HERE",
+    "Authorization": "Token ",
     "Content-Type": "application/json"
 }
 

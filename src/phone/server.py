@@ -1,12 +1,24 @@
 import asyncio
 import time
-from openai import AsyncOpenAI
 import websockets
 import json
 import base64
 import os
 from dotenv import find_dotenv, load_dotenv
+from groq import AsyncGroq
+
+history = [{
+            "role": "system",
+            "content": """The user is calling to schedule an appointment with a person named Dave. You are his assistant, make sure to have their name and the date and time they would like to meet.
+                1. Get when the caller is next available
+                2. Confirm meeting with user.
+                3. Do not include any more information than needed and do not go outside the domain of an assistant for Dave.
+                4. Hangup call after confirming user does need need anything else.
+                """
+            },]
+
 start = None
+ttfab = False
 """
 Loads all of the environment variables
 
@@ -15,19 +27,17 @@ Gets messy if you try to store them outside so must be either in directory or in
 load_dotenv(find_dotenv('totallysecret.env'))
 DEEPGRAM = os.getenv('DEEPGRAM_API_KEY')
 GROQ = os.getenv('GROQ_API')
-GPT = os.getenv('GPT_API_KEY')
 LABS = os.getenv('ELEVEN_API')
-client = AsyncOpenAI(api_key=GPT)
+client = AsyncGroq(api_key=GROQ)
 
 # Connects to the deepgram websocket to send the text through and recieve the audio
 def deepgram_connect():
     extra_headers = {'Authorization': 'Token ' + DEEPGRAM}
-    deepgram_ws = websockets.connect("wss://api.deepgram.com/v1/listen?model=enhanced-phonecall&encoding=mulaw&smart_format=true&sample_rate=8000&endpointing=true", extra_headers = extra_headers)
+    deepgram_ws = websockets.connect("wss://api.deepgram.com/v1/listen?model=nova-2-phonecall&encoding=mulaw&sample_rate=8000&endpointing=10", extra_headers = extra_headers)
     
     return deepgram_ws
 
 async def text_chunker(chunks):
-    """Split text into chunks, ensuring to not break sentences."""
     splitters = (".", ",", "?", "!", ";", ":", "—", "-", "(", ")", "[", "]", "}", " ")
     buffer = ""
     async for text in chunks:
@@ -50,27 +60,38 @@ Asynchronously creates chunks and pushes them to the stack at the same time that
 
 As the answer is being generated the chunks are created and sent to deepgram to convert into audio which also is chunked
 """
-async def gpt_stream(text, ws, stream_sid):
+async def answer_stream(text, ws, stream_sid):
     global start
+    global history
+    print("Function Call time: " + str(time.time() - start))
+    history.append({ "role": "user", "content": text,})
     result = await client.chat.completions.create(
-    model = "gpt-3.5-turbo",
-    messages = [
-        {"role": "system", "content": "You are an assistant whose task is to communicate and provide one sentence responses to questions that the user might have."},
-        {"role": "user", "content": text}
-    ],
-    stream = True,
-    temperature=1
+        messages = history,
+        model="llama3-8b-8192",
+        temperature=0.2,
+        max_tokens=1024,
+        top_p=0.8,
+        stop=None,
+        stream=True,
+        seed=10,
     )
 
     async def text_iterator():
+        global history
+        TTA = True
+        response = ""
         async for chunk in result:
             chunk_text = chunk.choices[0].delta.content
+            if chunk_text:
+                response += chunk_text
+            if TTA:
+                print("TT First Answer Chunk: " + str(time.time() - start))
+                TTA = False
             yield chunk_text
-    start = time.time()
+        history.append({ "role": "system", "content": response,})
     await text_to_speech_input_streaming(text_iterator(), ws, stream_sid)
 
 async def text_to_speech_input_streaming(text_iterator, ws, stream_sid):
-    """Send text to ElevenLabs API and stream the returned audio."""
     uri = f"wss://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream-input?model_id=eleven_turbo_v2&output_format=ulaw_8000&optimize_streaming_latency=3"
 
     async with websockets.connect(uri) as websocket:
@@ -81,7 +102,6 @@ async def text_to_speech_input_streaming(text_iterator, ws, stream_sid):
         }))
 
         async def listen():
-            """Listen to the websocket for audio data and stream it."""
             while True:
                 try:
                     message = await websocket.recv()
@@ -114,8 +134,8 @@ This can be kept inside of the proxy but in order to decrease complexity it is m
 async def twilio_sender(twilio_ws, streamsid, audio_stream):
     print('twilio_sender started')
     global start
+    global ttfab
     async for chunk in audio_stream:
-        #print(chunk)
         # Stream the content directly into twilio socket
         if chunk:
             try:
@@ -129,7 +149,9 @@ async def twilio_sender(twilio_ws, streamsid, audio_stream):
 
                 # send the TTS audio to the attached phonecall
                 await twilio_ws.send(json.dumps(media_message))
-                print("TTFAB: " + str(time.time() - start))
+                if not ttfab:
+                    print("TTFAB: " + str(time.time() - start))
+                    ttfab = True
             except Exception as e:
                 print("Error sending to Twilio: ", e)
 
@@ -158,16 +180,19 @@ async def proxy(client_ws):
         # passes in deepgram websocket and twilio websocket to transmit and recieve data async
         async def deepgram_receiver(deepgram_ws, client_ws):
             print('started deepgram receiver')
+            global start
+            global ttfab
             nonlocal stream_sid
             async for message in deepgram_ws:
                 try:
                     dg_json = json.loads(message)
                     sentence = dg_json["channel"]["alternatives"][0]["transcript"] # Whatever deepgram picked up from the call
-                    #print(sentence, len(sentence.split()))
+                    print(sentence)
                     try:
-                        #if(is_complete(GROQ, sentence.strip()) == "yes"): # asks groq hey is this a good enough sentence to ask gpt
                         if(len(sentence) != 0):
-                            await gpt_stream(sentence.strip(), client_ws, stream_sid)
+                            start = time.time()
+                            ttfab = False
+                            await answer_stream(sentence.strip(), client_ws, stream_sid)
 
                     except Exception as e:
                         print('did not receive a standard streaming result', e)

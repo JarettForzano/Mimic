@@ -49,11 +49,11 @@ async def voice_to_text(api_key, groq_api):
             else:
                 transcript_collector.add_part(sentence)
                 full_sentence = transcript_collector.get_full_transcript()
-                if(is_complete(groq_api, full_sentence) == "yes"):
-                    duration = transcript_collector.end_time - transcript_collector.start_time
+                #if(is_complete(groq_api, full_sentence) == "yes"):
+                duration = transcript_collector.end_time - transcript_collector.start_time
 
-                    print(f"speaker: [{duration}] {full_sentence}")
-                    transcript_collector.reset()
+                print(f"speaker: [{duration}] {full_sentence}")
+                transcript_collector.reset()
 
 
 
