@@ -1,5 +1,6 @@
 import asyncio
 import time
+from openai import AsyncOpenAI
 import websockets
 import json
 import base64
@@ -9,11 +10,11 @@ from groq import AsyncGroq
 
 history = [{
             "role": "system",
-            "content": """The user is calling to schedule an appointment with a person named Dave. You are his assistant, make sure to have their name and the date and time they would like to meet.
-                1. Get when the caller is next available
-                2. Confirm meeting with user.
-                3. Do not include any more information than needed and do not go outside the domain of an assistant for Dave.
-                4. Hangup call after confirming user does need need anything else.
+            "content": """
+                The user is calling to schedule an appointment. 
+                You are an assistant, make sure to have the callers name, date, time they would like to meet and who they are meeting with. 
+                State that you will be hanging up after confirming the appointment.
+                Do not include any more information than needed and do not go outside the domain of an assistant.
                 """
             },]
 
@@ -28,8 +29,9 @@ load_dotenv(find_dotenv('totallysecret.env'))
 DEEPGRAM = os.getenv('DEEPGRAM_API_KEY')
 GROQ = os.getenv('GROQ_API')
 LABS = os.getenv('ELEVEN_API')
+GPT = os.getenv('GPT_API_KEY')
 client = AsyncGroq(api_key=GROQ)
-
+#client = AsyncOpenAI(api_key=GPT)
 # Connects to the deepgram websocket to send the text through and recieve the audio
 def deepgram_connect():
     extra_headers = {'Authorization': 'Token ' + DEEPGRAM}
@@ -92,7 +94,7 @@ async def answer_stream(text, ws, stream_sid):
     await text_to_speech_input_streaming(text_iterator(), ws, stream_sid)
 
 async def text_to_speech_input_streaming(text_iterator, ws, stream_sid):
-    uri = f"wss://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream-input?model_id=eleven_turbo_v2&output_format=ulaw_8000&optimize_streaming_latency=3"
+    uri = f"wss://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream-input?model_id=eleven_turbo_v2&output_format=ulaw_8000&optimize_streaming_latency=5"
 
     async with websockets.connect(uri) as websocket:
         await websocket.send(json.dumps({
@@ -146,12 +148,11 @@ async def twilio_sender(twilio_ws, streamsid, audio_stream):
                         'payload': chunk
                     }
                 }
-
-                # send the TTS audio to the attached phonecall
-                await twilio_ws.send(json.dumps(media_message))
                 if not ttfab:
                     print("TTFAB: " + str(time.time() - start))
                     ttfab = True
+                # send the TTS audio to the attached phonecall
+                await twilio_ws.send(json.dumps(media_message))
             except Exception as e:
                 print("Error sending to Twilio: ", e)
 
@@ -187,7 +188,7 @@ async def proxy(client_ws):
                 try:
                     dg_json = json.loads(message)
                     sentence = dg_json["channel"]["alternatives"][0]["transcript"] # Whatever deepgram picked up from the call
-                    print(sentence)
+                    #print(sentence)
                     try:
                         if(len(sentence) != 0):
                             start = time.time()
