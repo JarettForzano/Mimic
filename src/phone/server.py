@@ -11,10 +11,10 @@ from groq import AsyncGroq
 history = [{
             "role": "system",
             "content": """
-                The user is calling to schedule an appointment. 
-                You are an assistant, make sure to have the callers name, date, time they would like to meet and who they are meeting with. 
-                State that you will be hanging up after confirming the appointment.
-                Do not include any more information than needed and do not go outside the domain of an assistant.
+                1. The user is calling to schedule an appointment. 
+                2. You are an assistant named julia, make sure to have the callers name, date, time they would like to meet and who they are meeting with. 
+                3. State that you will be hanging up.
+                4. Do not include any more information than needed and do not go outside the domain of an assistant.
                 """
             },]
 
@@ -35,8 +35,8 @@ client = AsyncGroq(api_key=GROQ)
 # Connects to the deepgram websocket to send the text through and recieve the audio
 def deepgram_connect():
     extra_headers = {'Authorization': 'Token ' + DEEPGRAM}
-    deepgram_ws = websockets.connect("wss://api.deepgram.com/v1/listen?model=nova-2-phonecall&encoding=mulaw&sample_rate=8000&endpointing=10", extra_headers = extra_headers)
-    
+    deepgram_ws = websockets.connect("wss://api.deepgram.com/v1/listen?model=nova-2-phonecall&encoding=mulaw&sample_rate=8000&endpointing=1&channels=1", extra_headers = extra_headers)
+
     return deepgram_ws
 
 async def text_chunker(chunks):
@@ -70,7 +70,7 @@ async def answer_stream(text, ws, stream_sid):
     result = await client.chat.completions.create(
         messages = history,
         model="llama3-8b-8192",
-        temperature=0.2,
+        temperature=1,
         max_tokens=1024,
         top_p=0.8,
         stop=None,
@@ -188,9 +188,10 @@ async def proxy(client_ws):
                 try:
                     dg_json = json.loads(message)
                     sentence = dg_json["channel"]["alternatives"][0]["transcript"] # Whatever deepgram picked up from the call
-                    #print(sentence)
+                    
                     try:
                         if(len(sentence) != 0):
+                           # print(dg_json)
                             start = time.time()
                             ttfab = False
                             await answer_stream(sentence.strip(), client_ws, stream_sid)
