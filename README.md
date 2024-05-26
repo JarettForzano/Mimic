@@ -8,14 +8,14 @@ Twilio (api key, number, Twilio bin)
 <br>
 Groq (api key)
 <br>
-GPT (api key)
+~~GPT (api key)~~
 <br>
 Phone number (calling Twilio number)
 <br>
 Using Ngrok host on 5000 ->```ngrok http 5000``` should return something similar to ```d7d7-24-151-91-112.ngrok-free.app```
 
 ## Feature list
-### Device Features
+### Device Features (Discontinued)
 - [X] TTV Device
 - [X] STT Device
 - [ ] Complete Integration
