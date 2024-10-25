@@ -162,7 +162,7 @@ This is the proxy that the twilio websocket connects to
 
 The deepgram websocket is connected and starts listening for audio and sends what is picked up to deepgram services for a transcription
 Deepgram reciever takes in the deepgram websocket and the twilio websocket, deepgram socket retrieves the json response with the transcript attatched
-Twilio websocket is used to transmit the response from gpt once recieved
+Twilio websocket is used to transmit the response from groq once recieved
 """
 
 async def proxy(client_ws):
