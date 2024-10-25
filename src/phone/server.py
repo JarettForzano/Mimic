@@ -8,7 +8,7 @@ import os
 from dotenv import find_dotenv, load_dotenv
 from groq import AsyncGroq
 
-history = [{
+history = [{ # For demo purposes we created a persona that the agent is an assistant scheduling an appointment 
             "role": "system",
             "content": """
                 1. The user is calling to schedule an appointment. 
@@ -58,9 +58,9 @@ async def text_chunker(chunks):
         yield buffer + " "
 
 """
-Asynchronously creates chunks and pushes them to the stack at the same time that twilio sender is being run
+Asynchronously creates chunks and pushes them to the stack at the same time that twilio sender is being ran
 
-As the answer is being generated the chunks are created and sent to deepgram to convert into audio which also is chunked
+As the answer is being generated the chunks are sent to elevenlabs to convert into audio which is streamed back into the websocket for the user to hear
 """
 async def answer_stream(text, ws, stream_sid):
     global start
@@ -93,7 +93,7 @@ async def answer_stream(text, ws, stream_sid):
         history.append({ "role": "system", "content": response,})
     await text_to_speech_input_streaming(text_iterator(), ws, stream_sid)
 
-async def text_to_speech_input_streaming(text_iterator, ws, stream_sid):
+async def text_to_speech_input_streaming(text_iterator, ws, stream_sid): # Easier to handle in ulaw since thats what everything natively supports
     uri = f"wss://api.elevenlabs.io/v1/text-to-speech/21m00Tcm4TlvDq8ikWAM/stream-input?model_id=eleven_turbo_v2&output_format=ulaw_8000&optimize_streaming_latency=5"
 
     async with websockets.connect(uri) as websocket:
@@ -160,9 +160,9 @@ async def twilio_sender(twilio_ws, streamsid, audio_stream):
 """
 This is the proxy that the twilio websocket connects to
 
-The deepgram websocket gets connected and starts listening for audio and sends to deepgram services for a transcription
+The deepgram websocket is connected and starts listening for audio and sends what is picked up to deepgram services for a transcription
 Deepgram reciever takes in the deepgram websocket and the twilio websocket, deepgram socket retrieves the json response with the transcript attatched
-Twilio websocket is used transmit the response from gpt once recieved
+Twilio websocket is used to transmit the response from gpt once recieved
 """
 
 async def proxy(client_ws):
